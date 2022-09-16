@@ -14,8 +14,8 @@ use futures_util::StreamExt;
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 //##:¤¤¤¤¤¤¤¤¤¤¤ Constants
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
-const DB_FILE_PATH: &str = "/mnt/c/temp/podcastindex_feeds.db";
-const OUTPUT_FOLDER: &str = "/mnt/d/enclosures";
+const DB_FILE_PATH: &str = "/Users/davejones/podcastindex_feeds.db";
+const OUTPUT_FOLDER: &str = "/Users/davejones/enclosures";
 const MAX_ENCLOSURES_PER_ROUND: usize = 23;
 
 
@@ -69,6 +69,9 @@ async fn main() {
                     break;
                 }
 
+                //Store the last id for where to start on the next iteration
+                start_at = podcasts.last().unwrap().id + 1;
+
                 for podcast in podcasts {
                     match download_enclosure(podcast).await {
                         Ok(_) => {
@@ -86,9 +89,6 @@ async fn main() {
             }
         }
 
-        //Keep a running total, which is also the starting point for the next db grab
-        start_at += 1;
-
         //Cool down
         std::thread::sleep(std::time::Duration::from_secs(13));
     }
@@ -102,11 +102,13 @@ async fn main() {
 //##:¤¤¤¤¤¤¤¤¤¤¤ Functions()
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 async fn download_enclosure(podcast: Podcast) -> Result<bool, Box<dyn Error>> {
-
-
-    //DEBUG: grab the first enclosure
     let url = &podcast.enclosure.url;
-    let mut file = File::create(format!("{}/{}.mp3", OUTPUT_FOLDER, podcast.id)).unwrap();
+    let enclosure_path = format!("{}/{}.mp3", OUTPUT_FOLDER, podcast.id);
+    let mut file = File::create(&enclosure_path).unwrap();
+
+    // if std::path::Path::new(&enclosure_path).exists() {
+    //     return Ok(false);
+    // }
 
     println!("Retrieving: [{}|{}|{}]", podcast.id, podcast.enclosure.duration, podcast.enclosure.url);
 
@@ -146,6 +148,8 @@ fn connect_to_database(filepath: &String) -> Result<Connection, Box<dyn Error>> 
 fn get_feeds_from_sql(filepath: &String, index: usize, max: usize) -> Result<Vec<Podcast>, Box<dyn Error>> {
     let conn = connect_to_database(filepath)?;
     let mut podcasts: Vec<Podcast> = Vec::new();
+
+    println!("Getting podcasts from id: [{}]", index);
 
     //Run the query and store the result
     let sqltxt: String = format!(
