@@ -1,13 +1,15 @@
 [package]
 name = "slurpy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "A podcast enclosure downloader tuned for the Podcast Index weekly database dump."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 tokio = { version = "1.19.2", features = ["full"] }
 futures = { version = "0.3.21"}
-reqwest = { version = "0.11.11", features = ["gzip","stream"] }
+reqwest = { "version" = "0.11", features = ["stream","rustls-tls","gzip"] }
 rusqlite = { version = "0.27.0", features = ["bundled"] }
 futures-util = { version = "0.3.21" }
+rand = { version = "0.8.5" }
