@@ -133,27 +133,36 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>) -> Result<(), Box<dyn std::err
                 let url = &podcast.enclosure.url;
                 let enclosure_path = format!("{}/{}.mp3", OUTPUT_FOLDER, podcast.id);
                 if std::path::Path::new(&enclosure_path).exists() {
-                    println!("Skipping: [{}|{}]... File exists.", podcast.id, podcast.enclosure.duration);
+                    println!("Skipping: [{}|{}]... File exists.",
+                             podcast.id,
+                             podcast.enclosure.duration);
                 } else {
-                    print!("Retrieving: [{}|{}|{}]... ", podcast.id, podcast.enclosure.duration, url);
+                    println!("Retrieving: [{}|{}|{}]... ",
+                             podcast.id,
+                             podcast.enclosure.duration,
+                             url);
 
                     if let Ok(response) = podcast.client.get(url).send().await {
-                        if response.status().is_success() {
-                            println!("Success!");
+                        let rstatus = response.status().as_u16();
 
+                        if response.status().is_success() {
                             let mut file = File::create(&enclosure_path).unwrap();
 
                             let mut byte_stream = response.bytes_stream();
 
                             while let Some(item) = byte_stream.next().await {
                                 if Write::write_all(&mut file, &item.unwrap()).is_err() {
-                                    eprintln!("Error writing file for: {}", podcast.enclosure.url);
+                                    eprintln!("Error writing file for: {}",
+                                              podcast.enclosure.url);
                                 }
                             }
-                        } else if response.status().is_server_error() {
-                            println!("Server Error!");
                         } else {
-                            println!("Error. Status: [{:?}]", response.status());
+                            let error_enclosure_path = format!("{}/{}.{}", OUTPUT_FOLDER, podcast.id, rstatus);
+                            let _file = File::create(&error_enclosure_path).unwrap();
+                            eprintln!("Error. Status: [{}|{}|{}]",
+                                      podcast.id,
+                                      podcast.enclosure.duration,
+                                      response.status());
                         }
                     }
                 }
