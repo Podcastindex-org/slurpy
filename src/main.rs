@@ -10,17 +10,13 @@ use std::io::Write;
 use futures_util::StreamExt;
 use rand::Rng;
 use std::time::{Duration};
-
+use clap::Parser;
 
 
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 //##:¤¤¤¤¤¤¤¤¤¤¤ Constants
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 const USERAGENT: &str = concat!("Slurpy (PodcastIndex.org)/v", env!("CARGO_PKG_VERSION"));
-const DB_FILE_PATH: &str = "/mnt/c/temp/podcastindex_feeds.db";
-const OUTPUT_FOLDER: &str = "/mnt/d/enclosures";
-const MAX_ENCLOSURES_PER_ROUND: usize = 23;
-
 
 
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
@@ -29,7 +25,7 @@ const MAX_ENCLOSURES_PER_ROUND: usize = 23;
 struct Podcast {
     id: usize,
     enclosure: Enclosure,
-    client: reqwest::Client
+    client: reqwest::Client,
 }
 
 struct Enclosure {
@@ -39,7 +35,6 @@ struct Enclosure {
 
 #[derive(Debug)]
 struct HydraError(String);
-
 
 
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
@@ -54,6 +49,25 @@ impl fmt::Display for HydraError {
 impl Error for HydraError {}
 
 
+//##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
+//##:¤¤¤¤¤¤¤¤¤¤¤ Args
+//##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    // Path to the podcast index database file
+    #[clap(short, long, value_parser)]
+    db_file_path: String,
+
+    // Path to the output folder
+    #[clap(short, long, value_parser)]
+    output_folder_path: String,
+
+    // Path to the output folder
+    #[clap(short, long, value_parser, default_value_t = 33)]
+    max_enclosures_per_round: usize,
+}
+
 
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 //##:¤¤¤¤¤¤¤¤¤¤¤ Main()
@@ -61,6 +75,9 @@ impl Error for HydraError {}
 #[tokio::main]
 async fn main() {
     let mut rng = rand::thread_rng();
+
+    //Get args
+    let args = Args::parse();
 
     //Announce what we are
     println!("{}", USERAGENT);
@@ -84,7 +101,7 @@ async fn main() {
     let mut count: usize = 0;
     let mut start_at: usize = 0;
     loop {
-        match get_feeds_from_sql(&DB_FILE_PATH.to_string(), start_at, MAX_ENCLOSURES_PER_ROUND, &client) {
+        match get_feeds_from_sql(&args.db_file_path, start_at, args.max_enclosures_per_round, &client) {
             Ok(podcasts) => {
                 //Kill the loop if nothing returns
                 if podcasts.len() == 0 {
@@ -96,7 +113,7 @@ async fn main() {
                 start_at = podcasts.last().unwrap().id + 1;
 
                 //Attempt to download this batch of enclosures
-                match fetch_enclosures(podcasts).await {
+                match fetch_enclosures(podcasts, &args.output_folder_path).await {
                     Ok(_) => {
                         count += 1;
                     }
@@ -119,19 +136,19 @@ async fn main() {
 }
 
 
-
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 //##:¤¤¤¤¤¤¤¤¤¤¤ Functions()
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 
 //##: Take in a vector of Podcasts and attempt to pull each one of them that is update
-async fn fetch_enclosures(podcasts: Vec<Podcast>) -> Result<(), Box<dyn std::error::Error>> {
+async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Result<(), Box<dyn std::error::Error>> {
+    let podcasts_count = podcasts.len();
 
     let fetches = futures::stream::iter(
         podcasts.into_iter().map(|podcast| {
             async move {
                 let url = &podcast.enclosure.url;
-                let enclosure_path = format!("{}/{}.mp3", OUTPUT_FOLDER, podcast.id);
+                let enclosure_path = format!("{}/{}.mp3", output_folder, podcast.id);
                 if std::path::Path::new(&enclosure_path).exists() {
                     println!("Skipping: [{}|{}]... File exists.",
                              podcast.id,
@@ -151,13 +168,20 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>) -> Result<(), Box<dyn std::err
                             let mut byte_stream = response.bytes_stream();
 
                             while let Some(item) = byte_stream.next().await {
-                                if Write::write_all(&mut file, &item.unwrap()).is_err() {
-                                    eprintln!("Error writing file for: {}",
-                                              podcast.enclosure.url);
+                                match item {
+                                    Ok(stream_chunk) => {
+                                        if Write::write_all(&mut file, &stream_chunk).is_err() {
+                                            eprintln!("Error writing file for: {}",
+                                                      podcast.enclosure.url);
+                                        }
+                                    },
+                                    Err(_) => {
+                                        //eprintln!("Error getting byte stream: [{:?}]", e);
+                                    }
                                 }
                             }
                         } else {
-                            let error_enclosure_path = format!("{}/{}.{}", OUTPUT_FOLDER, podcast.id, rstatus);
+                            let error_enclosure_path = format!("{}/{}.{}", output_folder, podcast.id, rstatus);
                             let _file = File::create(&error_enclosure_path).unwrap();
                             eprintln!("Error. Status: [{}|{}|{}]",
                                       podcast.id,
@@ -168,7 +192,7 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>) -> Result<(), Box<dyn std::err
                 }
             }
         })
-    ).buffer_unordered(MAX_ENCLOSURES_PER_ROUND).collect::<Vec<()>>();
+    ).buffer_unordered(podcasts_count).collect::<Vec<()>>();
     fetches.await;
     Ok(())
 }
@@ -215,7 +239,7 @@ fn get_feeds_from_sql(filepath: &String, index: usize, max: usize, client: &reqw
                     url: row.get(1).unwrap(),
                     duration: row.get(2).unwrap_or(0),
                 },
-                client: client.clone()
+                client: client.clone(),
             })
         }).unwrap();
 
