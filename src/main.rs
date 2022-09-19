@@ -63,9 +63,14 @@ struct Args {
     #[clap(short, long, value_parser)]
     output_folder_path: String,
 
-    // Path to the output folder
-    #[clap(short, long, value_parser, default_value_t = 33)]
+    // Maximum number of enclosures to download simultaneously
+    #[clap(short, long, value_parser, default_value_t = 23)]
     max_enclosures_per_round: usize,
+
+    // What feed id number to start at
+    #[clap(short, long, value_parser, default_value_t = 1)]
+    start_at_id: usize,
+
 }
 
 
@@ -79,28 +84,41 @@ async fn main() {
     //Get args
     let args = Args::parse();
 
+    //Env
+    // if let (max_concurrent_downloads) = args.max_enclosures_per_round {
+    //
+    // }
+
     //Announce what we are
     println!("{}", USERAGENT);
     println!("{}\n", "-".repeat(USERAGENT.len()));
 
-    //Build the query client
-    let mut headers = header::HeaderMap::new();
-    headers.insert("User-Agent", header::HeaderValue::from_static(USERAGENT));
-    let client = reqwest::Client::builder()
-        .use_rustls_tls()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .pool_idle_timeout(Duration::from_secs(20))
-        .default_headers(headers)
-        .gzip(true)
-        .build()
-        .unwrap();
 
     // This vector will hold the podcasts we are going to download enclosure
     // for.  It will be a vector of Podcast structs.
     let mut count: usize = 0;
     let mut start_at: usize = 0;
     loop {
+
+        //Build the query client
+        let mut headers = header::HeaderMap::new();
+        headers.insert("User-Agent", header::HeaderValue::from_static(USERAGENT));
+        let client = reqwest::Client::builder()
+            .use_rustls_tls()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .pool_idle_timeout(Duration::from_secs(20))
+            .default_headers(headers)
+            .gzip(true)
+            .build()
+            .unwrap();
+
+        //Cool down
+        let mut cooldown_seconds: usize = args.max_enclosures_per_round;
+        if count == 0 {
+            cooldown_seconds = 0;
+        }
+
         match get_feeds_from_sql(&args.db_file_path, start_at, args.max_enclosures_per_round, &client) {
             Ok(podcasts) => {
                 //Kill the loop if nothing returns
@@ -114,8 +132,12 @@ async fn main() {
 
                 //Attempt to download this batch of enclosures
                 match fetch_enclosures(podcasts, &args.output_folder_path).await {
-                    Ok(_) => {
-                        count += 1;
+                    Ok(downloaded) => {
+                        count += downloaded;
+                        cooldown_seconds = downloaded;
+                        if downloaded == args.max_enclosures_per_round {
+                            cooldown_seconds = rng.gen_range(args.max_enclosures_per_round..90);
+                        }
                     }
                     Err(_) => {}
                 }
@@ -125,11 +147,11 @@ async fn main() {
             }
         }
 
-
-        //Cool down
-        let cooldown_seconds = rng.gen_range(33..120);
+        //Cooldown
         println!("Pausing [{}] seconds for cooldown...", cooldown_seconds);
-        std::thread::sleep(std::time::Duration::from_secs(cooldown_seconds));
+        std::thread::sleep(std::time::Duration::from_secs(cooldown_seconds as u64));
+
+        drop(client);
     }
 
     println!("Downloaded: [{}] enclosures.", count);
@@ -141,19 +163,24 @@ async fn main() {
 //##:¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
 
 //##: Take in a vector of Podcasts and attempt to pull each one of them that is update
-async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Result<(), Box<dyn std::error::Error>> {
+async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Result<usize, Box<dyn std::error::Error>> {
     let podcasts_count = podcasts.len();
 
     let fetches = futures::stream::iter(
         podcasts.into_iter().map(|podcast| {
             async move {
+                let mut downloads: usize = 0;
                 let url = &podcast.enclosure.url;
                 let enclosure_path = format!("{}/{}.mp3", output_folder, podcast.id);
-                if std::path::Path::new(&enclosure_path).exists() {
+                let mut error_enclosure_path = format!("{}/{}.err", output_folder, podcast.id);
+
+                if std::path::Path::new(&enclosure_path).exists() ||
+                   std::path::Path::new(&error_enclosure_path).exists() {
                     println!("Skipping: [{}|{}]... File exists.",
                              podcast.id,
                              podcast.enclosure.duration);
                 } else {
+                    downloads += 1;
                     println!("Retrieving: [{}|{}|{}]... ",
                              podcast.id,
                              podcast.enclosure.duration,
@@ -174,14 +201,15 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Res
                                             eprintln!("Error writing file for: {}",
                                                       podcast.enclosure.url);
                                         }
-                                    },
+                                    }
                                     Err(_) => {
                                         //eprintln!("Error getting byte stream: [{:?}]", e);
                                     }
                                 }
                             }
                         } else {
-                            let error_enclosure_path = format!("{}/{}.{}", output_folder, podcast.id, rstatus);
+                            let _file = File::create(&error_enclosure_path).unwrap();
+                            error_enclosure_path = format!("{}/{}.{}", output_folder, podcast.id, rstatus);
                             let _file = File::create(&error_enclosure_path).unwrap();
                             eprintln!("Error. Status: [{}|{}|{}]",
                                       podcast.id,
@@ -190,11 +218,15 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Res
                         }
                     }
                 }
+
+                downloads
             }
         })
-    ).buffer_unordered(podcasts_count).collect::<Vec<()>>();
-    fetches.await;
-    Ok(())
+    ).buffer_unordered(podcasts_count).collect::<Vec<usize>>();
+    let returned = fetches.await;
+    println!("{:#?}", returned);
+
+    Ok(returned.iter().sum::<usize>() as usize)
 }
 
 

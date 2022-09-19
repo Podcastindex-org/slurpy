@@ -1,6 +1,6 @@
 [package]
 name = "slurpy"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "A podcast enclosure downloader tuned for the Podcast Index weekly database dump."
 
@@ -13,4 +13,4 @@ reqwest = { "version" = "0.11", features = ["stream","rustls-tls","gzip"] }
 rusqlite = { version = "0.27.0", features = ["bundled"] }
 futures-util = { version = "0.3.21" }
 rand = { version = "0.8.5" }
-clap = { version = "3.2.22", features = ["derive"] }
+clap = { version = "3.2.21", features = ["derive"] }
