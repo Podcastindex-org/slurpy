@@ -97,14 +97,13 @@ async fn main() {
     // This vector will hold the podcasts we are going to download enclosure
     // for.  It will be a vector of Podcast structs.
     let mut count: usize = 0;
-    let mut start_at: usize = 0;
+    let mut start_at = args.start_at_id;
     loop {
 
         //Build the query client
         let mut headers = header::HeaderMap::new();
         headers.insert("User-Agent", header::HeaderValue::from_static(USERAGENT));
         let client = reqwest::Client::builder()
-            .use_rustls_tls()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .pool_idle_timeout(Duration::from_secs(20))
@@ -119,6 +118,8 @@ async fn main() {
             cooldown_seconds = 0;
         }
 
+        println!("[{}]: Getting podcasts from the database...", chrono::offset::Local::now());
+
         match get_feeds_from_sql(&args.db_file_path, start_at, args.max_enclosures_per_round, &client) {
             Ok(podcasts) => {
                 //Kill the loop if nothing returns
@@ -131,6 +132,7 @@ async fn main() {
                 start_at = podcasts.last().unwrap().id + 1;
 
                 //Attempt to download this batch of enclosures
+                println!("[{}]: Fetching enclosures for: [{}] podcasts.", chrono::offset::Local::now(), podcasts.len());
                 match fetch_enclosures(podcasts, &args.output_folder_path).await {
                     Ok(downloaded) => {
                         count += downloaded;
@@ -166,6 +168,7 @@ async fn main() {
 async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Result<usize, Box<dyn std::error::Error>> {
     let podcasts_count = podcasts.len();
 
+
     let fetches = futures::stream::iter(
         podcasts.into_iter().map(|podcast| {
             async move {
@@ -198,12 +201,15 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Res
                                 match item {
                                     Ok(stream_chunk) => {
                                         if Write::write_all(&mut file, &stream_chunk).is_err() {
-                                            eprintln!("Error writing file for: {}",
-                                                      podcast.enclosure.url);
+                                            eprintln!("Error writing file for: {}", podcast.enclosure.url);
+                                            let _file = File::create(&error_enclosure_path).unwrap();
+                                            ()
                                         }
                                     }
                                     Err(_) => {
                                         //eprintln!("Error getting byte stream: [{:?}]", e);
+                                        let _file = File::create(&error_enclosure_path).unwrap();
+                                        ()
                                     }
                                 }
                             }
@@ -216,6 +222,10 @@ async fn fetch_enclosures(podcasts: Vec<Podcast>, output_folder: &String) -> Res
                                       podcast.enclosure.duration,
                                       response.status());
                         }
+                    } else {
+                        let _file = File::create(&error_enclosure_path).unwrap();
+                        println!("Error sending request for [{}].", podcast.id);
+                        ()
                     }
                 }
 
